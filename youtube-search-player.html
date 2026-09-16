@@ -1,0 +1,193 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>YouTube Search & Player</title>
+<style>
+  :root {
+    --bg: #ffffff;
+    --surface: #f4f4f2;
+    --border: #ddd;
+    --text: #1a1a1a;
+    --muted: #666;
+    --accent: #cc0000;
+  }
+  * { box-sizing: border-box; }
+  body {
+    font-family: -apple-system, "Segoe UI", Roboto, Arial, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    max-width: 900px;
+    margin: 0 auto;
+    padding: 24px 16px 64px;
+  }
+  h1 { font-size: 20px; font-weight: 600; margin-bottom: 4px; }
+  p.sub { color: var(--muted); font-size: 14px; margin-top: 0; margin-bottom: 20px; }
+
+  .search-row { display: flex; gap: 8px; margin-bottom: 20px; }
+  .search-row input {
+    flex: 1;
+    padding: 10px 12px;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    font-size: 15px;
+  }
+  button {
+    padding: 10px 16px;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    background: #fff;
+    font-size: 14px;
+    cursor: pointer;
+  }
+  button:hover { background: var(--surface); }
+  button.primary { background: var(--accent); color: #fff; border-color: var(--accent); }
+  button.primary:hover { background: #a80000; }
+  button:disabled { opacity: 0.5; cursor: not-allowed; }
+
+  #status { font-size: 13px; color: var(--muted); min-height: 18px; margin-bottom: 12px; }
+  #status.error { color: var(--accent); }
+
+  #player-wrap {
+    position: relative;
+    width: 100%;
+    aspect-ratio: 16/9;
+    background: #000;
+    border-radius: 10px;
+    overflow: hidden;
+    display: none;
+    margin-bottom: 24px;
+  }
+  #player-wrap iframe { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; }
+
+  #results {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+  .result {
+    display: flex;
+    gap: 12px;
+    padding: 10px;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    cursor: pointer;
+    background: #fff;
+  }
+  .result:hover { background: var(--surface); }
+  .result img { width: 120px; height: 68px; object-fit: cover; border-radius: 4px; flex-shrink: 0; }
+  .result .info { min-width: 0; }
+  .result .title { font-size: 14px; font-weight: 600; margin: 0 0 4px; overflow: hidden; text-overflow: ellipsis; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+  .result .channel { font-size: 12px; color: var(--muted); margin: 0; }
+</style>
+</head>
+<body>
+
+<h1>YouTube search & player</h1>
+<p class="sub">Uses the official YouTube Data API v3.</p>
+
+<div class="search-row">
+  <input type="text" id="query" placeholder="Search YouTube..." />
+  <button class="primary" id="searchBtn">Search</button>
+</div>
+
+<div id="status"></div>
+
+<div id="player-wrap">
+  <iframe id="player" allow="autoplay; encrypted-media" allowfullscreen></iframe>
+</div>
+
+<div id="results"></div>
+
+<script>
+  // Paste your own YouTube Data API v3 key here before uploading.
+  // Get one free at: Google Cloud Console -> enable "YouTube Data API v3" -> Credentials -> Create API key
+  const API_KEY = "PASTE_YOUR_API_KEY_HERE";
+
+  const queryInput = document.getElementById('query');
+  const searchBtn = document.getElementById('searchBtn');
+  const statusEl = document.getElementById('status');
+  const resultsEl = document.getElementById('results');
+  const playerWrap = document.getElementById('player-wrap');
+  const player = document.getElementById('player');
+
+  function setStatus(msg, isError) {
+    statusEl.textContent = msg || '';
+    statusEl.className = isError ? 'error' : '';
+  }
+
+  function escapeHtml(str) {
+    const d = document.createElement('div');
+    d.textContent = str;
+    return d.innerHTML;
+  }
+
+  async function doSearch() {
+    const key = API_KEY.trim();
+    const q = queryInput.value.trim();
+    if (!key || key === 'AIzaSyCA7EZ-HXW-WIoV1NJSNn_o1Ffoz3_PYkw') { setStatus('Add your API key in the code (look for API_KEY near the top of the script) before using this.', true); return; }
+    if (!q) { setStatus('Enter something to search for.', true); return; }
+
+    setStatus('Searching...');
+    resultsEl.innerHTML = '';
+    searchBtn.disabled = true;
+
+    try {
+      const url = 'https://www.googleapis.com/youtube/v3/search'
+        + '?part=snippet&type=video&maxResults=10'
+        + '&q=' + encodeURIComponent(q)
+        + '&key=' + encodeURIComponent(key);
+
+      const res = await fetch(url);
+      const data = await res.json();
+
+      if (!res.ok) {
+        const msg = (data.error && data.error.message) || 'Request failed.';
+        setStatus('Error: ' + msg, true);
+        return;
+      }
+
+      const items = data.items || [];
+      if (items.length === 0) {
+        setStatus('No results found.');
+        return;
+      }
+
+      setStatus(items.length + ' results');
+      items.forEach(item => {
+        const id = item.id.videoId;
+        const title = item.snippet.title;
+        const channel = item.snippet.channelTitle;
+        const thumb = item.snippet.thumbnails && (item.snippet.thumbnails.medium || item.snippet.thumbnails.default);
+
+        const div = document.createElement('div');
+        div.className = 'result';
+        div.innerHTML =
+          '<img src="' + (thumb ? thumb.url : '') + '" alt="">' +
+          '<div class="info">' +
+            '<p class="title">' + escapeHtml(title) + '</p>' +
+            '<p class="channel">' + escapeHtml(channel) + '</p>' +
+          '</div>';
+        div.addEventListener('click', () => playVideo(id));
+        resultsEl.appendChild(div);
+      });
+    } catch (err) {
+      setStatus('Network error: ' + err.message, true);
+    } finally {
+      searchBtn.disabled = false;
+    }
+  }
+
+  function playVideo(videoId) {
+    player.src = 'https://www.youtube-nocookie.com/embed/' + videoId
+      + '?rel=0&modestbranding=1&autoplay=1';
+    playerWrap.style.display = 'block';
+    playerWrap.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }
+
+  searchBtn.addEventListener('click', doSearch);
+  queryInput.addEventListener('keydown', e => { if (e.key === 'Enter') doSearch(); });
+</script>
+
+</body>
+</html>
